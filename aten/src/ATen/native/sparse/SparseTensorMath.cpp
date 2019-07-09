@@ -374,6 +374,29 @@ void add_dense_sparse_worker_cpu(Tensor& r, Scalar value, const SparseTensor& sp
   });
 }
 
+template <typename scalar_t>
+void add_dense_sparse_worker_cpu2(Tensor& r, Scalar value, const SparseTensor& sparse, const Tensor& indices, const Tensor& values) {
+  int64_t k;
+
+  auto indices_accessor = indices.accessor<int64_t, 2>();
+  auto values_accessor = values.accessor<scalar_t, 2>();
+  auto row_size = values.sizes()[1];
+
+  scalar_t* r_ptr = r.data<scalar_t>();
+  scalar_t cast_value = value.to<scalar_t>();
+
+  #pragma omp parallel for private(k)
+  for (k = 0; k < sparse._nnz(); k++) {
+    int64_t index = r.storage_offset();
+    for (int64_t d = 0; d < sparse.sparse_dim(); d++) {
+      index += r.stride(d) * indices_accessor[d][k];
+    }
+    for(int64_t v = 0; v < row_size; v++) {
+      r_ptr[index+v] += cast_value * values_accessor[k][v];
+    }
+  }
+}
+
 Tensor& add_out_dense_sparse_cpu(Tensor& r, const Tensor& dense, const SparseTensor& sparse_, Scalar value) {
   AT_ASSERT(!r.is_sparse());
   AT_ASSERT(!dense.is_sparse());
@@ -398,8 +421,14 @@ Tensor& add_out_dense_sparse_cpu(Tensor& r, const Tensor& dense, const SparseTen
   if (sparse._nnz() == 0) return r;
 
   // accessors rely on nnz test
-  if (nDim > nDimI) {
+  if(sparse.dense_dim() == 1 && r.is_contiguous() && values.is_contiguous()) {
+    AT_DISPATCH_ALL_TYPES(
+        values.scalar_type(), "my_add_dense_sparse", [&] {
+          add_dense_sparse_worker_cpu2<scalar_t>(r, value, sparse, indices, values);
+        });
+  } else if (nDim > nDimI) {
     auto indices_accessor = indices.accessor<int64_t, 2>();
+    #pragma omp parallel for if(sparse._nnz() > 100)
     for (int64_t k = 0; k < sparse._nnz(); k++) {
       Tensor dstBuffer = r;
       for (int64_t d = 0; d < sparse.sparse_dim(); d++) {
