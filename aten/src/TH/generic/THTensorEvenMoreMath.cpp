@@ -402,6 +402,8 @@ void THTensor_(indexSelect)(THTensor *tensor, THTensor *src, int dim, THLongTens
 
   index = THLongTensor_newContiguous(index);
   index_data = THLongTensor_data(index);
+  // Performance improves many times when src is contiguous
+  src = THTensor_(newContiguous)(src);
 
   if (dim == 0 && THTensor_(isContiguous)(src) && THTensor_(isContiguous)(tensor))
   {
@@ -463,6 +465,7 @@ void THTensor_(indexSelect)(THTensor *tensor, THTensor *src, int dim, THLongTens
     }
   }
 
+  c10::raw::intrusive_ptr::decref(src);
   THLongTensor_free(index);
 }
 
