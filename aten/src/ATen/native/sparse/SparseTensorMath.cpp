@@ -384,11 +384,13 @@ void add_dense_sparse_worker_cpu2(Tensor& r, Scalar value, const SparseTensor& s
 
   scalar_t* r_ptr = r.data<scalar_t>();
   scalar_t cast_value = value.to<scalar_t>();
+  auto nnz = sparse._nnz();
+  auto sparse_dim = sparse.sparse_dim();
 
   #pragma omp parallel for private(k)
-  for (k = 0; k < sparse._nnz(); k++) {
+  for (k = 0; k < nnz; k++) {
     int64_t index = r.storage_offset();
-    for (int64_t d = 0; d < sparse.sparse_dim(); d++) {
+    for (int64_t d = 0; d < sparse_dim; d++) {
       index += r.stride(d) * indices_accessor[d][k];
     }
     for(int64_t v = 0; v < row_size; v++) {
