@@ -3,6 +3,9 @@
 #include <map>
 
 #include <c10/core/DeviceGuard.h>
+#include <time.h>
+#include <stdio.h>
+#include <torch/csrc/autograd/record_function.h>
 
 #if defined(OPEN_MPI) && OPEN_MPI
 #include <mpi-ext.h> // Needed for CUDA-aware check
@@ -22,6 +25,22 @@ namespace c10d {
   } while (0)
 
 namespace {
+
+double get_time() {
+  static bool init_done = false;
+  static struct timespec stp = {0,0};
+  struct timespec tp;
+  //clock_gettime(CLOCK_REALTIME, &tp);
+  clock_gettime(CLOCK_MONOTONIC, &tp);
+  //clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &tp);
+
+  if(!init_done) {
+    init_done = true;
+    stp = tp;
+  }
+  double ret = (tp.tv_sec - stp.tv_sec) * 1e3 + (tp.tv_nsec - stp.tv_nsec)*1e-6;
+  return ret;
+}
 
 // Op mapping
 std::map<ReduceOp, MPI_Op> mpiOp = {
@@ -291,8 +310,12 @@ void ProcessGroupMPI::runLoop() {
     queueConsumeCV_.notify_one();
 
     try {
+      //double st = get_time();
+      //priintf("MPIThread: StartCall: %.3f\n", st);
       workEntry->run(workEntry);
       work->finish();
+      //double et = get_time();
+      //priintf("MPIThread: FinishCall: %.3f   Dur: %.3f\n", et, et - st);
     } catch (...) {
       work->finish(std::current_exception());
     }
@@ -302,8 +325,9 @@ void ProcessGroupMPI::runLoop() {
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::enqueue(
-    std::unique_ptr<WorkEntry> entry) {
-  auto work = std::make_shared<WorkMPI>();
+    std::unique_ptr<WorkEntry> entry, std::string debug_str) {
+  RECORD_FUNCTION(std::string("PGM_enqueue:") + debug_str, std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
+  auto work = std::make_shared<WorkMPI>(debug_str);
   std::unique_lock<std::mutex> lock(pgMutex_);
   queue_.push_back(std::make_tuple(std::move(entry), work));
   lock.unlock();
@@ -339,8 +363,9 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce(
 
   std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [opts, this](std::unique_ptr<WorkEntry>& entry) {
+        //RECORD_FUNCTION("MPI_Allreduce", std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
         auto data = (entry->src)[0];
-        c10::DeviceGuard guard(data.device());
+        c10::DeviceGuard guard1(data.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
         MPI_CHECK(MPI_Allreduce(
             MPI_IN_PLACE,
@@ -352,7 +377,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce(
       };
   auto entry = std::unique_ptr<WorkEntry>(
       new WorkEntry(&tensors, nullptr, std::move(runFunc)));
-  return enqueue(std::move(entry));
+  //priintf("MPIEnqueqe AllReduce (%ld) at: %.3f\n", (long)tensors[0].numel(), get_time());
+  return enqueue(std::move(entry), std::string("allreduce_SZ:") + std::to_string(tensors[0].numel()));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce_coalesced(
@@ -410,11 +436,12 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allgather(
 
   std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [this](std::unique_ptr<WorkEntry>& entry) {
+        //RECORD_FUNCTION("MPI_AllGather", std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
         auto data = (entry->src)[0];
         std::vector<at::Tensor>& outputDataVec = entry->dst;
         auto flatOutputTensor = newLikeFlat(outputDataVec);
 
-        c10::DeviceGuard guard(data.device());
+        c10::DeviceGuard guard1(data.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
         MPI_CHECK(MPI_Allgather(
             data.data_ptr(),
@@ -431,7 +458,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allgather(
       };
   auto entry = std::unique_ptr<WorkEntry>(
       new WorkEntry(&inputTensors, &outputTensors[0], std::move(runFunc)));
-  return enqueue(std::move(entry));
+  //priintf("MPIEnqueqe AllGather (%ld) at: %.3f\n", (long)inputTensors[0].numel(), get_time());
+  return enqueue(std::move(entry), std::string("allgather_SZ:") + std::to_string(inputTensors[0].numel()));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::gather(
@@ -572,6 +600,34 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce_scatter(
     std::vector<std::vector<at::Tensor>>& inputTensors,
     const ReduceScatterOptions& opts) {
   throw std::runtime_error("ProcessGroupMPI does not support reduce_scatter");
+}
+
+std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall(
+    std::vector<at::Tensor>& outputTensors,
+    std::vector<at::Tensor>& inputTensors,
+    const AllToAllOptions& opts) {
+  checkSingleTensor(outputTensors);
+  checkSingleTensor(inputTensors);
+  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+      [opts, this](std::unique_ptr<WorkEntry>& entry) {
+        //RECORD_FUNCTION("MPI_Alltoall", std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
+        auto srcdata = (entry->src)[0];
+        auto dstdata = (entry->dst)[0];
+        c10::DeviceGuard guard1(srcdata.device());
+        std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+        MPI_CHECK(MPI_Alltoall(
+            srcdata.data_ptr(),
+            srcdata.numel()/size_,
+            mpiDatatype.at(srcdata.scalar_type()),
+            dstdata.data_ptr(),
+            dstdata.numel()/size_,
+            mpiDatatype.at(dstdata.scalar_type()),
+            pgComm_));
+      };
+  auto entry = std::unique_ptr<WorkEntry>(
+      new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
+  //priintf("MPIEnqueqe AllToAll (%ld) at: %.3f\n", (long)inputTensors[0].numel(), get_time());
+  return enqueue(std::move(entry), std::string("alltoall_SZ:") + std::to_string(inputTensors[0].numel()/size_));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::send(

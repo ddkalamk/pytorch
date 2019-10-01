@@ -146,6 +146,10 @@ They are used in specifying strategies for reduction collectives, e.g.,
       .def(py::init<>())
       .def_readwrite("timeout", &::c10d::BarrierOptions::timeout);
 
+  py::class_<::c10d::AllToAllOptions>(module, "AllToAllOptions")
+      .def(py::init<>())
+      .def_readwrite("timeout", &::c10d::AllToAllOptions::timeout);
+
   auto store =
       shared_ptr_class_<::c10d::Store>(module, "Store")
           // Convert from std::string to std::vector<uint8>.
@@ -383,6 +387,28 @@ They are used in specifying strategies for reduction collectives, e.g.,
               },
               py::arg("output_tensors"),
               py::arg("input_tensor"),
+              py::call_guard<py::gil_scoped_release>())
+
+          .def(
+              "alltoall",
+              &::c10d::ProcessGroup::alltoall,
+              py::arg("output"),
+              py::arg("input"),
+              py::arg("opts") = ::c10d::AllToAllOptions(),
+              py::call_guard<py::gil_scoped_release>())
+
+          .def(
+              "alltoall",
+              [](::c10d::ProcessGroup& pg,
+                 at::Tensor& output,
+                 at::Tensor& input) {
+                std::vector<at::Tensor> outputs = {output};
+                std::vector<at::Tensor> inputs = {input};
+                return pg.alltoall(
+                    outputs, inputs, ::c10d::AllToAllOptions());
+              },
+              py::arg("output"),
+              py::arg("input"),
               py::call_guard<py::gil_scoped_release>())
 
           .def(
