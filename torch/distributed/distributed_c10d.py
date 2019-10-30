@@ -3,6 +3,9 @@ import warnings
 from torch._six import string_classes
 from datetime import timedelta
 
+import sys
+import importlib
+
 # This module is wildcard imported from torch.distributed.
 # TODO: specify __all__
 
@@ -74,7 +77,20 @@ class Backend(object):
                              "Gloo or MPI backend for collective operations "
                              "on CPU tensors.")
         elif value == Backend.UNDEFINED:
-            raise ValueError("Invalid backend: '{}'".format(name))
+            try:
+                if name not in sys.modules:
+                    third_lib = importlib.import_module(name)
+                else:
+                    third_lib = sys.modules[name]
+
+                pg_name = "ProcessGroup{}".format(name.upper())
+                if pg_name not in globals() and third_lib.__dict__.get(pg_name):
+                    globals()[pg_name] = third_lib.__dict__.get(pg_name)
+
+                setattr(Backend, name.upper(), name.lower())
+                value = getattr(Backend, name.upper(), Backend.UNDEFINED)
+            except ImportError:
+                raise ValueError("Invalid backend: '{}'".format(name))
         return value
 
 # `_backend`, `dist_backend`, and `reduce_op` are here to maintain backward
@@ -381,12 +397,12 @@ def init_process_group(backend,
 
     backend = Backend(backend)
 
-    if backend == Backend.MPI:
+    if backend == Backend.MPI or init_method == 'auto':
         _default_pg = _new_process_group_helper(
             -1,
             -1,
             [],
-            Backend.MPI,
+            backend,
             None,
             group_name=group_name,
             timeout=timeout)
@@ -472,7 +488,10 @@ def _new_process_group_helper(world_size,
 
         # Use the group name as prefix in the default store, such that
         # a single store can be reused by multiple groups.
-        prefix_store = PrefixStore(group_name, store)
+        if store is not None:
+            prefix_store = PrefixStore(group_name, store)
+        else:
+            prefix_store = None
 
         if backend == Backend.GLOO:
             pg = ProcessGroupGloo(
@@ -494,7 +513,14 @@ def _new_process_group_helper(world_size,
             _pg_map[pg] = (Backend.NCCL, store)
             _pg_names[pg] = group_name
         else:
-            raise RuntimeError("Unsupported distributed backend by group")
+            pg_name = "ProcessGroup{}".format(backend.upper())
+            pg = globals()[pg_name](
+                prefix_store,
+                rank,
+                world_size,
+                group_name)
+            _pg_map[pg] = (pg_name, store)
+            _pg_names[pg] = group_name
 
     return pg
 
