@@ -258,7 +258,7 @@ class profile(object):
         -----------------------------------  ---------------  ---------------  ---------------
 
     """
-    def __init__(self, enabled=True, use_cuda=False, record_shapes=False):
+    def __init__(self, enabled=True, use_cuda=False, record_shapes=False, start_suspended=False):
         self.enabled = enabled
         self.use_cuda = use_cuda
         self.function_events = None
@@ -266,6 +266,7 @@ class profile(object):
             return
         self.entered = False
         self.record_shapes = record_shapes
+        self.start_suspended = start_suspended
 
     def __enter__(self):
         if not self.enabled:
@@ -277,6 +278,10 @@ class profile(object):
             else torch.autograd.ProfilerState.CPU
         torch.autograd._enable_profiler(
             torch.autograd.ProfilerConfig(profiler_kind, self.record_shapes))
+        if self.start_suspended:
+            torch.autograd._suspend_profiler()
+        else:
+            torch.autograd._resume_profiler()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -321,6 +326,12 @@ class profile(object):
         self._check_finish()
         return self.function_events.total_average()
     total_average.__doc__ = EventList.total_average.__doc__
+
+    def suspend(self):
+        torch.autograd._suspend_profiler()
+
+    def resume(self):
+        torch.autograd._resume_profiler()
 
     @property
     def self_cpu_time_total(self):

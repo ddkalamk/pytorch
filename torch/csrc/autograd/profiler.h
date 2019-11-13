@@ -231,6 +231,8 @@ using thread_event_lists = std::vector<std::vector<Event>>;
 TORCH_API void enableProfiler(ProfilerConfig);
 TORCH_API thread_event_lists disableProfiler();
 TORCH_API bool profilerEnabled();
+TORCH_API void suspendProfiler();
+TORCH_API void resumeProfiler();
 
 
 // Usage:
