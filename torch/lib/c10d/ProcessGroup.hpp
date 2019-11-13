@@ -37,6 +37,8 @@ class ProcessGroup {
  public:
   class Work {
    public:
+    Work(std::string debug_str = "") : debug_str_(debug_str) { }
+
     virtual ~Work();
 
     // Checks if request has completed. Non-blocking operation.
@@ -90,6 +92,7 @@ class ProcessGroup {
     std::condition_variable cv_;
     bool completed_ = false;
     std::exception_ptr exception_;
+    std::string debug_str_;
   };
 
   explicit ProcessGroup(int rank, int size);

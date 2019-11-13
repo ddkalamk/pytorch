@@ -9,6 +9,7 @@
 #include <torch/csrc/autograd/profiler.h>
 #include <torch/csrc/utils/hash.h>
 #include <torch/csrc/utils/memory.h>
+#include <torch/csrc/autograd/record_function.h>
 
 namespace c10d {
 namespace {
@@ -236,6 +237,7 @@ void Reducer::mark_variable_ready_sparse(VariableIndex index) {
 // model parameter has been accumulated into its gradient tensor.
 // This function is only to be called from the autograd thread.
 void Reducer::autograd_hook(VariableIndex index) {
+  RECORD_FUNCTION("Reducer::autograd_hook", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   std::lock_guard<std::mutex> lock(this->mutex_);
 
   // Ignore if we don't expect to be called.
@@ -490,6 +492,7 @@ void Reducer::initialize_buckets(
 // want to start performing reductions on `torch.autograd.backward()`.
 void Reducer::prepare_for_backward(
     const std::vector<torch::autograd::Variable>& outputs) {
+  RECORD_FUNCTION("Reducer::prepare_for_backward", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   std::lock_guard<std::mutex> lock(mutex_);
   std::unordered_set<torch::autograd::Node*> seen;
   std::vector<torch::autograd::Node*> queue;
@@ -610,6 +613,7 @@ void Reducer::finalize_bucket_sparse(Bucket& bucket) {
 }
 
 void Reducer::finalize_backward() {
+  RECORD_FUNCTION("Reducer::finalize_backward", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   // No longer expect autograd hooks to fire after this function returns.
   AT_ASSERT(expect_autograd_hooks_);
   expect_autograd_hooks_ = false;
