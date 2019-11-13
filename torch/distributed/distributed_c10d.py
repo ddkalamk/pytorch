@@ -17,6 +17,7 @@ from . import (
     GatherOptions,
     ReduceOptions,
     ReduceScatterOptions,
+    AllToAllOptions,
     ScatterOptions,
 )
 from . import ReduceOp
@@ -1484,6 +1485,44 @@ def reduce_scatter(output,
         work = _default_pg.reduce_scatter([output], [input_list], opts)
     else:
         work = group.reduce_scatter([output], [input_list], opts)
+
+    if async_op:
+        return work
+    else:
+        work.wait()
+
+
+def alltoall(output,
+                   input,
+                   group=group.WORLD,
+                   async_op=False):
+    """
+    Each process splits input tensor equally and then scatters the split list to all processes in a group.
+    Then concatenate the received tensors from all the processes in the group and return single output tensor.
+
+    Arguments:
+        output (Tensor): Gathered cancatenated output tensor.
+        input (Tensor): Input tensor to scatter.
+        group (ProcessGroup, optional): The process group to work on.
+        async_op (bool, optional): Whether this op should be an async op.
+
+    Returns:
+        Async work handle, if async_op is set to True.
+        None, if not async_op or if not part of the group.
+
+    """
+    _check_single_tensor(output, "output")
+    _check_single_tensor(input, "input")
+    if _rank_not_in_group(group):
+        return
+
+    opts = AllToAllOptions()
+
+    if group == GroupMember.WORLD:
+        _check_default_pg()
+        work = _default_pg.alltoall([output], [input], opts)
+    else:
+        work = group.alltoall([output], [input], opts)
 
     if async_op:
         return work
