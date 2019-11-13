@@ -73,6 +73,8 @@ struct WorkEntry {
 class ProcessGroupMPI : public ProcessGroup {
  public:
   class WorkMPI : public ProcessGroup::Work {
+   public:
+    WorkMPI(std::string debug_str_ = "") : ProcessGroup::Work(debug_str_) {}
    protected:
     friend class ProcessGroupMPI;
   };
@@ -196,7 +198,7 @@ class ProcessGroupMPI : public ProcessGroup {
   // Helper function that is called by the destructor
   void destroy();
 
-  std::shared_ptr<ProcessGroup::Work> enqueue(std::unique_ptr<WorkEntry> entry);
+  std::shared_ptr<ProcessGroup::Work> enqueue(std::unique_ptr<WorkEntry> entry, std::string debug_str = "");
 
   bool stop_;
 

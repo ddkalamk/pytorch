@@ -1,6 +1,7 @@
 #include <c10d/ProcessGroup.hpp>
 
 #include <c10/util/Logging.h>
+#include <torch/csrc/autograd/record_function.h>
 
 namespace c10d {
 
@@ -34,6 +35,7 @@ std::vector<at::Tensor> ProcessGroup::Work::result() const {
 void ProcessGroup::Work::synchronize() {}
 
 bool ProcessGroup::Work::wait() {
+  RECORD_FUNCTION(std::string("PG_Work_wait:") + debug_str_, std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
   std::unique_lock<std::mutex> lock(mutex_);
   cv_.wait(lock, [&] { return completed_; });
   if (exception_) {
