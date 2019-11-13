@@ -46,9 +46,11 @@ Reducer::Reducer(
     std::vector<std::vector<torch::autograd::Variable>> replicas,
     std::vector<std::vector<size_t>> bucket_indices,
     std::shared_ptr<c10d::ProcessGroup> process_group,
+    bool enable_bucketing,
     std::vector<std::vector<bool>> expect_sparse_gradients)
     : replicas_(std::move(replicas)),
       process_group_(std::move(process_group)),
+      enable_bucketing_(enable_bucketing),
       expect_sparse_gradients_(std::move(expect_sparse_gradients)),
       expect_autograd_hooks_(false),
       require_finalize_(false),
@@ -216,6 +218,17 @@ void Reducer::mark_variable_ready_dense(VariableIndex index) {
   auto& bucket = buckets_[bucket_index.bucket_index];
   auto& replica = bucket.replicas[replica_index];
   auto& variable = replica.variables[bucket_index.intra_bucket_index];
+
+  auto& grad = variable.grad();
+
+  if (!enable_bucketing_)
+  {
+      AT_ASSERT(grad.defined());
+      AT_ASSERT(replica.variables.size() == 1);
+      replica.contents = grad;
+      return;
+  }
+
   const auto offset = replica.offsets[bucket_index.intra_bucket_index];
   const auto length = replica.lengths[bucket_index.intra_bucket_index];
 
@@ -224,7 +237,7 @@ void Reducer::mark_variable_ready_dense(VariableIndex index) {
   // as part of the current backwards pass, and zero the part
   // of the bucket it would otherwise hold.
   auto bucket_view = replica.contents.narrow(0, offset, length);
-  auto& grad = variable.grad();
+
   if (grad.defined()) {
     // Ensure that the gradient type matches the bucket type.
     TORCH_CHECK(
@@ -416,6 +429,7 @@ void Reducer::mark_bucket_ready(size_t bucket_index) {
       //
       tensors.push_back(replica.contents);
     }
+
     bucket.work = process_group_->allreduce(tensors);
     if(sync_allreduce) bucket.work->wait();
   }
@@ -468,7 +482,7 @@ void Reducer::initialize_buckets(
          replica_index++) {
       BucketReplica replica;
 
-      if (bucket.expect_sparse_gradient) {
+      if (bucket.expect_sparse_gradient || !enable_bucketing_) {
         const auto variable_index = bucket_indices[bucket_index].front();
         const auto& variable = replicas_[replica_index][variable_index];
         TORCH_INTERNAL_ASSERT(bucket_indices[bucket_index].size() == 1);
@@ -630,6 +644,13 @@ void Reducer::finalize_bucket_dense(Bucket& bucket) {
   for (size_t replica_index = 0; replica_index < bucket.replicas.size();
        replica_index++) {
     auto& replica = bucket.replicas[replica_index];
+
+    if (!enable_bucketing_)
+    {
+        AT_ASSERT(replica.variables.size() == 1);
+        continue;
+    }
+
     for (size_t intra_bucket_index = 0;
          intra_bucket_index < replica.variables.size();
          intra_bucket_index++) {
