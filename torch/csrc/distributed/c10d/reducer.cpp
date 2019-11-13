@@ -11,10 +11,12 @@
 #include <torch/csrc/utils/hash.h>
 #include <torch/csrc/utils/memory.h>
 #include <torch/csrc/autograd/record_function.h>
+#include <stdlib.h>
 
 namespace c10d {
 namespace {
 
+bool sync_allreduce = (getenv("PYTORCH_SYNC_ALLREDUCE") != 0);
 // Turns lambda without input/output into a torch::autograd::FunctionPostHook.
 class LambdaPostHook : public torch::autograd::FunctionPostHook {
   using variable_list = std::vector<torch::autograd::Variable>;
@@ -415,6 +417,7 @@ void Reducer::mark_bucket_ready(size_t bucket_index) {
       tensors.push_back(replica.contents);
     }
     bucket.work = process_group_->allreduce(tensors);
+    if(sync_allreduce) bucket.work->wait();
   }
 }
 
