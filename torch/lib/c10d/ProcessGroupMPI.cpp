@@ -3,6 +3,7 @@
 #include <map>
 
 #include <c10/core/DeviceGuard.h>
+#include <torch/csrc/autograd/record_function.h>
 
 #if defined(OPEN_MPI) && OPEN_MPI
 #include <mpi-ext.h> // Needed for CUDA-aware check
@@ -308,8 +309,9 @@ void ProcessGroupMPI::runLoop() {
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::enqueue(
-    std::unique_ptr<WorkEntry> entry) {
-  auto work = std::make_shared<WorkMPI>();
+    std::unique_ptr<WorkEntry> entry, std::string debug_str) {
+  RECORD_FUNCTION(std::string("PGM_enqueue:") + debug_str, std::vector<c10::IValue>(), -1 /*torch::autograd::Node::peek_at_next_sequence_nr()*/);
+  auto work = std::make_shared<WorkMPI>(debug_str);
   std::unique_lock<std::mutex> lock(pgMutex_);
   queue_.push_back(std::make_tuple(std::move(entry), work));
   lock.unlock();
@@ -358,7 +360,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce(
       };
   auto entry = std::unique_ptr<WorkEntry>(
       new WorkEntry(&tensors, nullptr, std::move(runFunc)));
-  return enqueue(std::move(entry));
+  return enqueue(std::move(entry), std::string("allreduce_SZ:") + std::to_string(tensors[0].numel()));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce_coalesced(
@@ -437,7 +439,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allgather(
       };
   auto entry = std::unique_ptr<WorkEntry>(
       new WorkEntry(&inputTensors, &outputTensors[0], std::move(runFunc)));
-  return enqueue(std::move(entry));
+  return enqueue(std::move(entry), std::string("allgather_SZ:") + std::to_string(inputTensors[0].numel()));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allgather_coalesced(
@@ -611,7 +613,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall(
       };
   auto entry = std::unique_ptr<WorkEntry>(
       new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
-  return enqueue(std::move(entry));
+  return enqueue(std::move(entry), std::string("alltoall_SZ:") + std::to_string(inputTensors[0].numel()/size_));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::send(
