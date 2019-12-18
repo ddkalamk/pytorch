@@ -1,5 +1,6 @@
 #include <torch/csrc/distributed/c10d/reducer.h>
 
+#include <atomic>
 #include <functional>
 
 #include <c10/core/DeviceGuard.h>
@@ -17,6 +18,7 @@ namespace c10d {
 namespace {
 
 bool sync_allreduce = (getenv("PYTORCH_SYNC_ALLREDUCE") != 0);
+std::atomic_int reducer_counter { 0 };
 // Turns lambda without input/output into a torch::autograd::FunctionPostHook.
 class LambdaPostHook : public torch::autograd::FunctionPostHook {
   using variable_list = std::vector<torch::autograd::Variable>;
@@ -57,7 +59,8 @@ Reducer::Reducer(
       next_bucket_(0),
       has_marked_unused_parameters_(false),
       local_used_maps_reduced_(false),
-      backward_stats_base_(0) {
+      backward_stats_base_(0),
+      reducer_prefix(std::string("reducer_") + std::to_string(reducer_counter.fetch_add(1, std::memory_order_release))) {
   TORCH_CHECK(replicas_.size() >= 1, "Expected at least one model replica.");
   TORCH_CHECK(replicas_[0].size() >= 1, "Expected at least one parameter.");
 
@@ -430,7 +433,9 @@ void Reducer::mark_bucket_ready(size_t bucket_index) {
       tensors.push_back(replica.contents);
     }
 
-    bucket.work = process_group_->allreduce(tensors);
+    c10d::AllreduceOptions opts;
+    opts.name = reducer_prefix + std::to_string(next_bucket_);
+    bucket.work = process_group_->allreduce(tensors, opts);
     if(sync_allreduce) bucket.work->wait();
   }
 }
