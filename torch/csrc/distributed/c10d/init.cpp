@@ -111,7 +111,8 @@ They are used in specifying strategies for reduction collectives, e.g.,
   py::class_<::c10d::AllreduceOptions>(module, "AllreduceOptions")
       .def(py::init<>())
       .def_readwrite("reduceOp", &::c10d::AllreduceOptions::reduceOp)
-      .def_readwrite("timeout", &::c10d::AllreduceOptions::timeout);
+      .def_readwrite("timeout", &::c10d::AllreduceOptions::timeout)
+      .def_readwrite("name", &::c10d::AllreduceOptions::name);
 
   py::class_<::c10d::AllreduceCoalescedOptions>(
       module, "AllreduceCoalescedOptions")
@@ -151,7 +152,8 @@ They are used in specifying strategies for reduction collectives, e.g.,
 
   py::class_<::c10d::AllToAllOptions>(module, "AllToAllOptions")
       .def(py::init<>())
-      .def_readwrite("timeout", &::c10d::AllToAllOptions::timeout);
+      .def_readwrite("timeout", &::c10d::AllToAllOptions::timeout)
+      .def_readwrite("name", &::c10d::AllToAllOptions::name);
 
   auto store =
       shared_ptr_class_<::c10d::Store>(module, "Store")

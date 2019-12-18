@@ -168,6 +168,7 @@ class Reducer {
   // the point in time buckets were ready, or ideal bucket assignment/ordering.
   int64_t backward_stats_base_;
   std::vector<std::vector<int64_t>> backward_stats_;
+  std::string reducer_prefix;
 };
 
 std::vector<std::vector<size_t>> compute_bucket_assignment_by_size(
