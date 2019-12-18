@@ -453,7 +453,7 @@ inline void add_dense_sparse_worker_critical_section_cpu(Tensor& r, Scalar value
     result_stride[d] = r.stride(d);
   }
   auto n = values_dense_size % add_dense_ven_len;
-  auto values_dense_size0 = values_dense_size >> add_dense_ven_len_bits;
+  auto values_dense_size0 = (values_dense_size >> add_dense_ven_len_bits) << add_dense_ven_len_bits;
   auto sparse_nnz = sparse._nnz();
   at::parallel_for(0, sparse_nnz, 64, [&](int64_t start, int64_t end) {
     for (auto k = start; k < end; k++) {

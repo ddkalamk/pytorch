@@ -426,7 +426,7 @@ Tensor _embedding_bag_sparse_backward_cpu_sum_fast(
         auto gradout_block = gradout_data + ddim * s;
         auto n = ddim % 32;
         int64_t v;
-        for (v = 0; v < (ddim >> 5); v += 32) {
+        for (v = 0; v < ddim - 31; v += 32) {
           __attribute__((aligned(32))) float tmp_values[32];
           std::memcpy((void*)&tmp_values[0], (void*)&grad_block[v + 0], 8 * sizeof(float));
           std::memcpy((void*)&tmp_values[8], (void*)&grad_block[v + 8], 8 * sizeof(float));
