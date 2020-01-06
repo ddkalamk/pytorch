@@ -197,7 +197,7 @@ void cpu_kernel(TensorIterator& iter, func_t&& op) {
         basic_loop(data, strides, 0, n, std::forward<func_t>(op));
       });
     }
-  });
+  }, 1024);
   iter.cast_outputs();
 }
 
