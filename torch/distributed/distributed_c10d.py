@@ -14,6 +14,7 @@ from . import (
     GatherOptions,
     ReduceOptions,
     ReduceScatterOptions,
+    AllToAllOptions,
     ScatterOptions,
 )
 from . import ReduceOp
@@ -1458,6 +1459,62 @@ def reduce_scatter(output,
         work = _default_pg.reduce_scatter([output], [input_list], opts)
     else:
         work = group.reduce_scatter([output], [input_list], opts)
+
+    if async_op:
+        return work
+    else:
+        work.wait()
+
+
+def alltoall(output,
+             input,
+             group=group.WORLD,
+             async_op=False):
+    """
+    Each process splits input tensor equally and then scatters the split list to all processes in a group.
+    Then concatenate the received tensors from all the processes in the group and return single output tensor.
+
+    Arguments:
+        output (Tensor): Gathered cancatenated output tensor.
+        input (Tensor): Input tensor to scatter.
+        group (ProcessGroup, optional): The process group to work on.
+        async_op (bool, optional): Whether this op should be an async op.
+
+    Returns:
+        Async work handle, if async_op is set to True.
+        None, if not async_op or if not part of the group.
+
+    Example:
+        input:
+            [ 0  1  2  3]  # Rank 0
+            [ 4  5  6  7]  # Rank 1
+            [ 8  9 10 11]  # Rank 2
+            [12 13 14 15]  # Rank 3
+
+        output:
+            [ 0  4  8 12]  # Rank 0
+            [ 1  5  9 13]  # Rank 1
+            [ 2  6 10 14]  # Rank 2
+            [ 3  7 11 15]  # Rank 3
+
+        Essentially, it is similar to following operation:
+            scatter_list = list(input.chunk(world_size))
+            gather_list  = list(output.chunk(world_size))
+            for i in range(world_size):
+                dist.scatter(gather_list[i], scatter_list if i == rank else [], src = i)
+    """
+    _check_single_tensor(output, "output")
+    _check_single_tensor(input, "input")
+    if _rank_not_in_group(group):
+        return
+
+    opts = AllToAllOptions()
+
+    if group == GroupMember.WORLD:
+        _check_default_pg()
+        work = _default_pg.alltoall([output], [input], opts)
+    else:
+        work = group.alltoall([output], [input], opts)
 
     if async_op:
         return work

@@ -588,6 +588,32 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce_scatter(
   throw std::runtime_error("ProcessGroupMPI does not support reduce_scatter");
 }
 
+std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall(
+    std::vector<at::Tensor>& outputTensors,
+    std::vector<at::Tensor>& inputTensors,
+    const AllToAllOptions& opts) {
+  checkSingleTensor(outputTensors);
+  checkSingleTensor(inputTensors);
+  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+      [opts, this](std::unique_ptr<WorkEntry>& entry) {
+        auto srcdata = (entry->src)[0];
+        auto dstdata = (entry->dst)[0];
+        c10::DeviceGuard guard1(srcdata.device());
+        std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+        MPI_CHECK(MPI_Alltoall(
+            srcdata.data_ptr(),
+            srcdata.numel()/size_,
+            mpiDatatype.at(srcdata.scalar_type()),
+            dstdata.data_ptr(),
+            dstdata.numel()/size_,
+            mpiDatatype.at(dstdata.scalar_type()),
+            pgComm_));
+      };
+  auto entry = std::unique_ptr<WorkEntry>(
+      new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
+  return enqueue(std::move(entry));
+}
+
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::send(
     std::vector<at::Tensor>& tensors,
     int dstRank,
