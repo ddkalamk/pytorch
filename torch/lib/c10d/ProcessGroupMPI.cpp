@@ -588,30 +588,165 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce_scatter(
   throw std::runtime_error("ProcessGroupMPI does not support reduce_scatter");
 }
 
-std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall(
+std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall_base(
     std::vector<at::Tensor>& outputTensors,
     std::vector<at::Tensor>& inputTensors,
+    std::vector<int>& outputSplitSizes,
+    std::vector<int>& inputSplitSizes,
     const AllToAllOptions& opts) {
   checkSingleTensor(outputTensors);
   checkSingleTensor(inputTensors);
-  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+
+  if(outputSplitSizes.size() == 0 && inputSplitSizes.size() == 0) {
+    // We can use alltoall
+    if ((outputTensors[0].numel() != inputTensors[0].numel()) ||
+        (outputTensors[0].type() != inputTensors[0].type())) {
+      throw std::runtime_error("Tensors are not equal in size or data type");
+    }
+    checkSingleTensorHelper(inputTensors[0]);
+    checkSingleTensorHelper(outputTensors[0]);
+    if(outputTensors[0].size(0) % size_ != 0) {
+      throw std::runtime_error("Tensor's dim 0 does not divide equally across group size");
+    }
+    
+    std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [opts, this](std::unique_ptr<WorkEntry>& entry) {
         auto srcdata = (entry->src)[0];
         auto dstdata = (entry->dst)[0];
-        c10::DeviceGuard guard1(srcdata.device());
+        c10::DeviceGuard guard(srcdata.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
         MPI_CHECK(MPI_Alltoall(
-            srcdata.data_ptr(),
-            srcdata.numel()/size_,
-            mpiDatatype.at(srcdata.scalar_type()),
-            dstdata.data_ptr(),
-            dstdata.numel()/size_,
-            mpiDatatype.at(dstdata.scalar_type()),
-            pgComm_));
+              srcdata.data_ptr(),
+              srcdata.numel()/size_,
+              mpiDatatype.at(srcdata.scalar_type()),
+              dstdata.data_ptr(),
+              dstdata.numel()/size_,
+              mpiDatatype.at(dstdata.scalar_type()),
+              pgComm_));
       };
-  auto entry = std::unique_ptr<WorkEntry>(
-      new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
-  return enqueue(std::move(entry));
+    auto entry = std::unique_ptr<WorkEntry>(
+        new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
+    return enqueue(std::move(entry));
+  } else {
+    // Need alltoallv
+    auto checkSplitSizes = [this](std::vector<int> split_sizes, at::Tensor &tensor) {
+      if(split_sizes.size() == 0) {
+        if(tensor.size(0) % size_ != 0) {
+          throw std::runtime_error("Tensor's dim 0 does not divide equally across group size");
+        }
+      } else {
+        if(split_sizes.size() != size_) {
+          throw std::runtime_error("Number of tensor splits not equal to group size");
+        }
+        int sum = std::accumulate(split_sizes.begin(), split_sizes.end(), 0);
+        if(sum != tensor.size(0)) {
+          throw std::runtime_error("Split sizes doesn't match total dim 0 size");
+        }
+      }
+    };
+    checkSplitSizes(inputSplitSizes, inputTensors[0]);
+    checkSplitSizes(outputSplitSizes, outputTensors[0]);
+    std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+      [opts, this, inputSplitSizes, outputSplitSizes](std::unique_ptr<WorkEntry>& entry) {
+        auto srcdata = (entry->src)[0];
+        auto dstdata = (entry->dst)[0];
+        std::vector<int> send_lengths(size_);
+        std::vector<int> recv_lengths(size_);
+        std::vector<int> send_offsets(size_);
+        std::vector<int> recv_offsets(size_);
+        auto computeLengthsAndOffsets = [this](std::vector<int> split_sizes, at::Tensor &tensor, std::vector<int> &lengths, std::vector<int> &offsets) {
+          if(split_sizes.size() == 0) {
+            int split_size = tensor.numel() / size_;
+            for(int i = 0; i < size_; i++) {
+              lengths[i] = split_size;
+              offsets[i] = i * split_size;
+            }
+          } else {
+            int split_size = tensor.numel() / tensor.size(0);
+            int offset = 0;
+            for(int i = 0; i < size_; i++) {
+              int length = split_size * split_sizes[i];
+              lengths[i] = length;
+              offsets[i] = offset;
+              offset += length;
+            }
+          }
+        };
+        computeLengthsAndOffsets(inputSplitSizes, srcdata, send_lengths, send_offsets);
+        computeLengthsAndOffsets(outputSplitSizes, dstdata, recv_lengths, recv_offsets);
+        c10::DeviceGuard guard(srcdata.device());
+        std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+        MPI_CHECK(MPI_Alltoallv(
+              srcdata.data_ptr(),
+              send_lengths.data(),
+              send_offsets.data(),
+              mpiDatatype.at(srcdata.scalar_type()),
+              dstdata.data_ptr(),
+              recv_lengths.data(),
+              recv_offsets.data(),
+              mpiDatatype.at(dstdata.scalar_type()),
+              pgComm_));
+      };
+    auto entry = std::unique_ptr<WorkEntry>(
+        new WorkEntry(&inputTensors, &outputTensors, std::move(runFunc)));
+    return enqueue(std::move(entry));
+  }
+}
+std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::alltoall(
+    std::vector<std::vector<at::Tensor>>& outputTensors,
+    std::vector<std::vector<at::Tensor>>& inputTensors,
+    const AllToAllOptions& opts) {
+  if(inputTensors[0].size() != size_ || outputTensors[0].size() != size_) {
+    throw std::runtime_error("Number of input or output tensors are not equal to group size");
+  }
+  std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
+    [opts, this](std::unique_ptr<WorkEntry>& entry) {
+      std::vector<int> send_lengths(size_);
+      std::vector<int> recv_lengths(size_);
+      std::vector<int> send_offsets(size_);
+      std::vector<int> recv_offsets(size_);
+      auto srcdata = entry->src;
+      auto dstdata = entry->dst;
+      auto computeLengthsAndOffsets = [this](std::vector<at::Tensor> &tensors, std::vector<int> &lengths, std::vector<int> &offsets) {
+        int offset = 0;
+        for(int i = 0; i < size_; i++) {
+          lengths[i] = tensors[i].numel();
+          offsets[i] = offset;
+          offset += tensors[i].numel();
+        }
+        return offset;
+      };
+      long src_len = computeLengthsAndOffsets(srcdata, send_lengths, send_offsets);
+      long dst_len = computeLengthsAndOffsets(dstdata, recv_lengths, recv_offsets);
+      std::vector<long int> send_lengthsL(send_lengths.begin(), send_lengths.end());
+      std::vector<long int> recv_lengthsL(recv_lengths.begin(), recv_lengths.end());
+      at::Tensor srcFlatData = at::empty({src_len}, srcdata[0].options());
+      at::Tensor dstFlatData = at::empty({dst_len}, dstdata[0].options());
+      auto srcFlatDataSplits = srcFlatData.split_with_sizes(c10::IntArrayRef(send_lengthsL), 0);
+      for(int i = 0; i < size_; i++) {
+        srcFlatDataSplits[i].copy_(srcdata[i].view({-1}));
+      }
+      c10::DeviceGuard guard1(srcdata[0].device());
+      std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
+      MPI_CHECK(MPI_Alltoallv(
+            srcFlatData.data_ptr(),
+            send_lengths.data(),
+            send_offsets.data(),
+            mpiDatatype.at(srcdata[0].scalar_type()),
+            dstFlatData.data_ptr(),
+            recv_lengths.data(),
+            recv_offsets.data(),
+            mpiDatatype.at(dstdata[0].scalar_type()),
+            pgComm_));
+
+      auto dstFlatDataSplits = dstFlatData.split_with_sizes(c10::IntArrayRef(recv_lengthsL), 0);
+      for(int i = 0; i < size_; i++) {
+        dstdata[i].view({-1}).copy_(dstFlatDataSplits[i]);
+      }
+    };
+    auto entry = std::unique_ptr<WorkEntry>(
+        new WorkEntry(&inputTensors[0], &outputTensors[0], std::move(runFunc)));
+    return enqueue(std::move(entry));
 }
 
 std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::send(

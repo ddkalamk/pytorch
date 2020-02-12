@@ -463,9 +463,11 @@ They are used in specifying strategies for reduction collectives, e.g.,
 
           .def(
               "alltoall",
-              &::c10d::ProcessGroup::alltoall,
-              py::arg("output"),
-              py::arg("input"),
+              &::c10d::ProcessGroup::alltoall_base,
+              py::arg("output_tensor"),
+              py::arg("input_tensor"),
+              py::arg("output_split_sizes"),
+              py::arg("input_split_sizes"),
               py::arg("opts") = ::c10d::AllToAllOptions(),
               py::call_guard<py::gil_scoped_release>())
 
@@ -473,9 +475,35 @@ They are used in specifying strategies for reduction collectives, e.g.,
               "alltoall",
               [](::c10d::ProcessGroup& pg,
                  at::Tensor& output,
-                 at::Tensor& input) {
+                 at::Tensor& input,
+                 std::vector<int> outputSplitSizes,
+                 std::vector<int> inputSplitSizes) {
                 std::vector<at::Tensor> outputs = {output};
                 std::vector<at::Tensor> inputs = {input};
+                return pg.alltoall_base(
+                    outputs, inputs, outputSplitSizes, inputSplitSizes, ::c10d::AllToAllOptions());
+              },
+              py::arg("output"),
+              py::arg("input"),
+              py::arg("output_split_sizes"),
+              py::arg("input_split_sizes"),
+              py::call_guard<py::gil_scoped_release>())
+
+          .def(
+              "alltoall",
+              &::c10d::ProcessGroup::alltoall,
+              py::arg("output_tensor"),
+              py::arg("input_tensor"),
+              py::arg("opts") = ::c10d::AllToAllOptions(),
+              py::call_guard<py::gil_scoped_release>())
+
+          .def(
+              "alltoall",
+              [](::c10d::ProcessGroup& pg,
+                 std::vector<at::Tensor>& output,
+                 std::vector<at::Tensor>& input) {
+                std::vector<std::vector<at::Tensor>> outputs = {output};
+                std::vector<std::vector<at::Tensor>> inputs = {input};
                 return pg.alltoall(
                     outputs, inputs, ::c10d::AllToAllOptions());
               },
