@@ -3,9 +3,6 @@ import warnings
 from torch._six import string_classes
 from datetime import timedelta
 
-import sys
-import importlib
-
 # This module is wildcard imported from torch.distributed.
 # TODO: specify __all__
 
@@ -47,7 +44,8 @@ except ImportError:
 
 class Backend(object):
     """
-    An enum-like class of available backends: GLOO, NCCL, and MPI.
+    An enum-like class of available backends: GLOO, NCCL, MPI, and other registered
+    backends.
 
     The values of this class are lowercase strings, e.g., ``"gloo"``. They can
     be accessed as attributes, e.g., ``Backend.NCCL``.
@@ -77,21 +75,22 @@ class Backend(object):
                              "Gloo or MPI backend for collective operations "
                              "on CPU tensors.")
         elif value == Backend.UNDEFINED:
-            try:
-                if name not in sys.modules:
-                    third_lib = importlib.import_module(name)
-                else:
-                    third_lib = sys.modules[name]
-
-                pg_name = "ProcessGroup{}".format(name.upper())
-                if pg_name not in globals() and third_lib.__dict__.get(pg_name):
-                    globals()[pg_name] = third_lib.__dict__.get(pg_name)
-
-                setattr(Backend, name.upper(), name.lower())
-                value = getattr(Backend, name.upper(), Backend.UNDEFINED)
-            except ImportError:
-                raise ValueError("Invalid backend: '{}'".format(name))
+            raise ValueError("Invalid backend: '{}'".format(name))
+        elif value != Backend.GLOO and value != Backend.NCCL and value != Backend.MPI:
+            value = name
         return value
+
+    @classmethod
+    def register_backend(cls, name, func):
+        """Registers a new backend.
+
+        This class method is used by 3rd party cpp extension to register new backend.
+
+        Arguments:
+            name (str): Backend name matching with the one in `init_process_group()`.
+            func (function): Function handler that instantiates the backend.
+        """ 
+        setattr(Backend, name.upper(), func)
 
 # `_backend`, `dist_backend`, and `reduce_op` are here to maintain backward
 # compatibility with pre-c10d distributed package.
@@ -398,12 +397,12 @@ def init_process_group(backend,
 
     backend = Backend(backend)
 
-    if backend == Backend.MPI or init_method == 'auto':
+    if backend == Backend.MPI:
         _default_pg = _new_process_group_helper(
             -1,
             -1,
             [],
-            backend,
+            Backend.MPI,
             None,
             group_name=group_name,
             timeout=timeout)
@@ -482,10 +481,7 @@ def _new_process_group_helper(world_size,
 
         # Use the group name as prefix in the default store, such that
         # a single store can be reused by multiple groups.
-        if store is not None:
-            prefix_store = PrefixStore(group_name, store)
-        else:
-            prefix_store = None
+        prefix_store = PrefixStore(group_name, store)
 
         if backend == Backend.GLOO:
             pg = ProcessGroupGloo(
@@ -507,13 +503,12 @@ def _new_process_group_helper(world_size,
             _pg_map[pg] = (Backend.NCCL, store)
             _pg_names[pg] = group_name
         else:
-            pg_name = "ProcessGroup{}".format(backend.upper())
-            pg = globals()[pg_name](
+            pg = getattr(Backend, backend.upper())(
                 prefix_store,
                 rank,
                 world_size,
                 group_name)
-            _pg_map[pg] = (pg_name, store)
+            _pg_map[pg] = (backend, store)
             _pg_names[pg] = group_name
 
     return pg
