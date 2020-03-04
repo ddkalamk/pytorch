@@ -24,6 +24,27 @@ namespace c10d {
 
 namespace {
 
+MPI_Datatype MPI_HALF = MPI_DATATYPE_NULL;
+MPI_Datatype MPI_BFLOAT16 = MPI_DATATYPE_NULL;
+MPI_Op MPI_SUM_LOW_PREC = MPI_OP_NULL;
+
+void low_prec_sum(void * a_, void * b_, int * len, MPI_Datatype * dtype)
+{
+  if(*dtype == MPI_BFLOAT16) {
+    at::BFloat16 *a = (at::BFloat16*)a_;
+    at::BFloat16 *b = (at::BFloat16*)b_;
+    for(int i = 0; i < *len; i++) {
+        b[i] += a[i];
+    }
+  } else if(*dtype == MPI_HALF) {
+    at::Half *a = (at::Half*)a_;
+    at::Half *b = (at::Half*)b_;
+    for(int i = 0; i < *len; i++) {
+        b[i] += a[i];
+    }
+  }
+}
+
 // Op mapping
 std::map<ReduceOp, MPI_Op> mpiOp = {
     {ReduceOp::MIN, MPI_MIN},
@@ -193,6 +214,13 @@ void ProcessGroupMPI::initMPIOnce() {
           "MPI_THREAD_SERIALIZED. This is required by "
           "c10d package");
     }
+    MPI_Type_contiguous(2, MPI_BYTE, &MPI_HALF);
+    MPI_Type_commit(&MPI_HALF);
+    mpiDatatype[at::kHalf] = MPI_HALF;
+    MPI_Type_contiguous(2, MPI_BYTE, &MPI_BFLOAT16);
+    MPI_Type_commit(&MPI_BFLOAT16);
+    mpiDatatype[at::kBFloat16] = MPI_BFLOAT16;
+    MPI_Op_create(&low_prec_sum, 1, &MPI_SUM_LOW_PREC);
     if (std::atexit(ProcessGroupMPI::mpiExit)) {
       throw std::runtime_error("Fail to register the MPI exit handler");
     }
@@ -345,9 +373,15 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce(
     const AllreduceOptions& opts) {
   checkSingleTensor(tensors);
 
+  if((tensors[0].scalar_type() == at::kBFloat16 || tensors[0].scalar_type() == at::kHalf)
+    && opts.reduceOp != ReduceOp::SUM) {
+    throw std::runtime_error("ProcessGroupMPI::allreduce: Only SUM op is supported for BFloat16 or Half type");
+  }
   std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [opts, this](std::unique_ptr<WorkEntry>& entry) {
         auto data = (entry->src)[0];
+        MPI_Op reduce_op = mpiOp.at(opts.reduceOp);
+        if(data.scalar_type() == at::kBFloat16 || data.scalar_type() == at::kHalf) reduce_op = MPI_SUM_LOW_PREC;
         c10::DeviceGuard guard(data.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
         MPI_CHECK(MPI_Allreduce(
@@ -355,7 +389,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::allreduce(
             data.data_ptr(),
             data.numel(),
             mpiDatatype.at(data.scalar_type()),
-            mpiOp.at(opts.reduceOp),
+            reduce_op,
             pgComm_));
       };
   auto entry = std::unique_ptr<WorkEntry>(
@@ -374,6 +408,10 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce(
     std::vector<at::Tensor>& tensors,
     const ReduceOptions& opts) {
   checkSingleTensor(tensors);
+  if((tensors[0].scalar_type() == at::kBFloat16 || tensors[0].scalar_type() == at::kHalf)
+    && opts.reduceOp != ReduceOp::SUM) {
+    throw std::runtime_error("ProcessGroupMPI::reduce: Only SUM op is supported for BFloat16 or Half type");
+  }
 
   std::function<void(std::unique_ptr<WorkEntry>&)> runFunc =
       [opts, this](std::unique_ptr<WorkEntry>& entry) {
@@ -381,6 +419,8 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce(
         auto dataPtr = (entry->src)[0].data_ptr();
         void* sendbuf = (rank_ == opts.rootRank) ? MPI_IN_PLACE : dataPtr;
         void* recvbuf = (rank_ == opts.rootRank) ? dataPtr : nullptr;
+        MPI_Op reduce_op = mpiOp.at(opts.reduceOp);
+        if(data.scalar_type() == at::kBFloat16 || data.scalar_type() == at::kHalf) reduce_op = MPI_SUM_LOW_PREC;
 
         c10::DeviceGuard guard(data.device());
         std::unique_lock<std::mutex> globalLock(pgGlobalMutex_);
@@ -389,7 +429,7 @@ std::shared_ptr<ProcessGroup::Work> ProcessGroupMPI::reduce(
             recvbuf,
             data.numel(),
             mpiDatatype.at(data.scalar_type()),
-            mpiOp.at(opts.reduceOp),
+            reduce_op,
             opts.rootRank,
             pgComm_));
       };
