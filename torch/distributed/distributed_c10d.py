@@ -1466,12 +1466,12 @@ def reduce_scatter(output,
         work.wait()
 
 
-def alltoall(output,
-             input,
-             output_split_sizes=[],
-             input_split_sizes=[],
-             group=group.WORLD,
-             async_op=False):
+def all_to_all(output,
+               input,
+               output_split_sizes=[],
+               input_split_sizes=[],
+               group=group.WORLD,
+               async_op=False):
     """
     Each process splits input tensor equally and then scatters the split list to all processes in a group.
     Then concatenate the received tensors from all the processes in the group and return single output tensor.
@@ -1504,7 +1504,7 @@ def alltoall(output,
         tensor([12, 13, 14, 15]) # Rank 3
 
         >>> output = torch.empty([4])
-        >>> dist.alltoall(output, input)
+        >>> dist.all_to_all(output, input)
         >>> output
         tensor([0, 4, 8, 12])    # Rank 0
         tensor([1, 5, 9, 13])    # Rank 1
@@ -1533,7 +1533,7 @@ def alltoall(output,
         [2, 2, 1, 2]                                                     # Rank 1
         [1, 2, 1, 2]                                                     # Rank 2
         [1, 2, 1, 1]                                                     # Rank 3
-        >>> dist.alltoall(output, input, output_splits, input_splits)
+        >>> dist.all_to_all(output, input, output_splits, input_splits)
         >>> output
         tensor([ 0,  1, 10, 11, 12, 20, 21, 30, 31])                     # Rank 0
         tensor([ 2,  3, 13, 14, 22, 32, 33])                             # Rank 1
@@ -1547,7 +1547,7 @@ def alltoall(output,
         [tensor([20, 21]), tensor([22]), tensor([23]), tensor([24])]                    # Rank 2
         [tensor([30, 31]), tensor([32, 33]), tensor([34, 35]), tensor([36])]            # Rank 3
 
-        >>> dist.alltoall(output, input)
+        >>> dist.all_to_all(output, input)
 
         >>> output
         [tensor([0, 1]), tensor([10, 11, 12]), tensor([20, 21]), tensor([30, 31])]      # Rank 0
@@ -1567,18 +1567,18 @@ def alltoall(output,
 
         if group == GroupMember.WORLD:
             _check_default_pg()
-            work = _default_pg.alltoall([output], [input], output_split_sizes, input_split_sizes, opts)
+            work = _default_pg.alltoall(output, input, output_split_sizes, input_split_sizes, opts)
         else:
-            work = group.alltoall([output], [input], output_split_sizes, input_split_sizes, opts)
+            work = group.alltoall(output, input, output_split_sizes, input_split_sizes, opts)
     else:
         _check_tensor_list(output, "output")
         _check_tensor_list(input, "input")
 
         if group == GroupMember.WORLD:
             _check_default_pg()
-            work = _default_pg.alltoall([output], [input], opts)
+            work = _default_pg.alltoall(output, input, opts)
         else:
-            work = group.alltoall([output], [input], opts)
+            work = group.alltoall(output, input, opts)
 
     if async_op:
         return work

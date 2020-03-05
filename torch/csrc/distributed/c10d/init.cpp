@@ -476,12 +476,10 @@ They are used in specifying strategies for reduction collectives, e.g.,
               [](::c10d::ProcessGroup& pg,
                  at::Tensor& output,
                  at::Tensor& input,
-                 std::vector<int> outputSplitSizes,
-                 std::vector<int> inputSplitSizes) {
-                std::vector<at::Tensor> outputs = {output};
-                std::vector<at::Tensor> inputs = {input};
+                 std::vector<int64_t> outputSplitSizes,
+                 std::vector<int64_t> inputSplitSizes) {
                 return pg.alltoall_base(
-                    outputs, inputs, outputSplitSizes, inputSplitSizes, ::c10d::AllToAllOptions());
+                    output, input, outputSplitSizes, inputSplitSizes, ::c10d::AllToAllOptions());
               },
               py::arg("output"),
               py::arg("input"),
@@ -502,10 +500,8 @@ They are used in specifying strategies for reduction collectives, e.g.,
               [](::c10d::ProcessGroup& pg,
                  std::vector<at::Tensor>& output,
                  std::vector<at::Tensor>& input) {
-                std::vector<std::vector<at::Tensor>> outputs = {output};
-                std::vector<std::vector<at::Tensor>> inputs = {input};
                 return pg.alltoall(
-                    outputs, inputs, ::c10d::AllToAllOptions());
+                    output, input, ::c10d::AllToAllOptions());
               },
               py::arg("output"),
               py::arg("input"),
