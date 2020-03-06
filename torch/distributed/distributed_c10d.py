@@ -1473,20 +1473,25 @@ def all_to_all(output,
                group=group.WORLD,
                async_op=False):
     """
-    Each process splits input tensor equally and then scatters the split list to all processes in a group.
-    Then concatenate the received tensors from all the processes in the group and return single output tensor.
+    Each process splits input tensor equally and then scatters the split list
+    to all processes in a group. Then concatenate the received tensors from all
+    the processes in the group and return single output tensor.
 
     Arguments:
-        output (Tensor or list[Tensor]): Gathered cancatenated output tensor if single Tensor is given
-            otherwise list of tensors to be gathered one per rank
-        input (Tensor or list[Tensor]): Input tensor to scatter if single tensor is given, otherwise
-            list of tensors to scatter one per rank.
-            Either both `input` and `output` should be list of tensors or single tensor but not a mix
-        output_split_sizes: (list[Int], optional): Output split sizes for dim 0 when `output` is single tensor,
-            if specified None or empty, dim 0 of `output` tensor must divide equally by `world_size`. Ignored if 
+        output (Tensor or list[Tensor]): Gathered cancatenated output tensor if
+            single Tensor is given otherwise list of tensors to be gathered one 
+            per rank
+        input (Tensor or list[Tensor]): Input tensor to scatter if single tensor
+            is given, otherwise list of tensors to scatter one per rank.
+            Either both `input` and `output` should be list of tensors or single
+            tensor but not a mix
+        output_split_sizes: (list[Int], optional): Output split sizes for dim 0
+            when `output` is single tensor, if specified None or empty, dim 0 of
+            `output` tensor must divide equally by `world_size`. Ignored if 
             `output` is a list of tensor
-        input_split_sizes: (list[Int], optional): Output split sizes for dim 0 when `input` is single tensor,
-            if specified None or empty, dim 0 of `input` tensor must divide equally by `world_size`. Ignored if 
+        input_split_sizes: (list[Int], optional): Output split sizes for dim 0
+            when `input` is single tensor, if specified None or empty, dim 0 of
+            `input` tensor must divide equally by `world_size`. Ignored if
             `input` is a list of tensor
         group (ProcessGroup, optional): The process group to work on
         async_op (bool, optional): Whether this op should be an async op
@@ -1502,7 +1507,6 @@ def all_to_all(output,
         tensor([4, 5, 6, 7])     # Rank 1
         tensor([8, 9, 10, 11])   # Rank 2
         tensor([12, 13, 14, 15]) # Rank 3
-
         >>> output = torch.empty([4])
         >>> dist.all_to_all(output, input)
         >>> output
@@ -1515,7 +1519,7 @@ def all_to_all(output,
         >>> scatter_list = list(input.chunk(world_size))
         >>> gather_list  = list(output.chunk(world_size))
         >>> for i in range(world_size):
-        >>>     dist.scatter(gather_list[i], scatter_list if i == rank else [], src = i)
+        >>>   dist.scatter(gather_list[i], scatter_list if i == rank else [], src = i)
 
         >>> # Another example with uneven split
         >>> input
@@ -1542,18 +1546,16 @@ def all_to_all(output,
 
         >>> # Same example using list of tensors
         >>> input
-        [tensor([0, 1]), tensor([2, 3]), tensor([4]), tensor([5])]                      # Rank 0
-        [tensor([10, 11, 12]), tensor([13, 14]), tensor([15, 16]), tensor([17, 18])]    # Rank 1
-        [tensor([20, 21]), tensor([22]), tensor([23]), tensor([24])]                    # Rank 2
-        [tensor([30, 31]), tensor([32, 33]), tensor([34, 35]), tensor([36])]            # Rank 3
-
+        [tensor([0, 1]), tensor([2, 3]), tensor([4]), tensor([5])]                   # Rank 0
+        [tensor([10, 11, 12]), tensor([13, 14]), tensor([15, 16]), tensor([17, 18])] # Rank 1
+        [tensor([20, 21]), tensor([22]), tensor([23]), tensor([24])]                 # Rank 2
+        [tensor([30, 31]), tensor([32, 33]), tensor([34, 35]), tensor([36])]         # Rank 3
         >>> dist.all_to_all(output, input)
-
         >>> output
-        [tensor([0, 1]), tensor([10, 11, 12]), tensor([20, 21]), tensor([30, 31])]      # Rank 0
-        [tensor([2, 3]), tensor([13, 14]), tensor([22]), tensor([32, 33])]              # Rank 1
-        [tensor([4]), tensor([15, 16]), tensor([23]), tensor([34, 35])]                 # Rank 2
-        [tensor([5]), tensor([17, 18]), tensor([24]), tensor([36])]                     # Rank 3
+        [tensor([0, 1]), tensor([10, 11, 12]), tensor([20, 21]), tensor([30, 31])]   # Rank 0
+        [tensor([2, 3]), tensor([13, 14]), tensor([22]), tensor([32, 33])]           # Rank 1
+        [tensor([4]), tensor([15, 16]), tensor([23]), tensor([34, 35])]              # Rank 2
+        [tensor([5]), tensor([17, 18]), tensor([24]), tensor([36])]                  # Rank 3
     """
     if _rank_not_in_group(group):
         return
