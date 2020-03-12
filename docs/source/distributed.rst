@@ -37,6 +37,8 @@ MPI supports CUDA only if the implementation used to build PyTorch supports it.
 +------------+-----+-----+-----+-----+-----+-----+
 | scatter    | ✓   | ✘   | ✓   | ?   | ✘   | ✘   |
 +------------+-----+-----+-----+-----+-----+-----+
+| all_to_all | ✘   | ✘   | ✓   | ?   | ✘   | ✘   |
++------------+-----+-----+-----+-----+-----+-----+
 | barrier    | ✓   | ✘   | ✓   | ?   | ✘   | ✓   |
 +------------+-----+-----+-----+-----+-----+-----+
 
@@ -316,6 +318,8 @@ Collective functions
 .. autofunction:: gather
 
 .. autofunction:: scatter
+
+.. autofunction:: all_to_all
 
 .. autofunction:: barrier
 

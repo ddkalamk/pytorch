@@ -163,17 +163,17 @@ class ProcessGroup {
       const ReduceScatterOptions& opts = ReduceScatterOptions()) = 0;
 
   virtual std::shared_ptr<ProcessGroup::Work> alltoall_base(
-      std::vector<at::Tensor>& outputTensors,
-      std::vector<at::Tensor>& inputTensors,
-      std::vector<int>& outputSplitSizes,
-      std::vector<int>& inputSplitSizes,
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
       const AllToAllOptions& opts = AllToAllOptions()) {
       throw std::runtime_error("ProcessGroup does not support alltoall");
   }
 
   virtual std::shared_ptr<ProcessGroup::Work> alltoall(
-      std::vector<std::vector<at::Tensor>>& outputTensors,
-      std::vector<std::vector<at::Tensor>>& inputTensors,
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
       const AllToAllOptions& opts = AllToAllOptions()) {
       throw std::runtime_error("ProcessGroup does not support alltoall");
   }
