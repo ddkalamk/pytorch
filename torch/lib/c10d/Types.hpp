@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <string>
 
 namespace c10d {
 
@@ -27,6 +28,7 @@ struct BroadcastOptions {
 struct AllreduceOptions {
   ReduceOp reduceOp = ReduceOp::SUM;
   std::chrono::milliseconds timeout = kUnsetTimeout;
+  std::string name;
 };
 
 struct AllreduceCoalescedOptions : AllreduceOptions {};
@@ -55,6 +57,11 @@ struct ScatterOptions {
 struct ReduceScatterOptions {
   ReduceOp reduceOp = ReduceOp::SUM;
   std::chrono::milliseconds timeout = kUnsetTimeout;
+};
+
+struct AllToAllOptions {
+  std::chrono::milliseconds timeout = kUnsetTimeout;
+  std::string name;
 };
 
 struct BarrierOptions {

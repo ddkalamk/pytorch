@@ -37,6 +37,8 @@ class ProcessGroup {
  public:
   class Work {
    public:
+    Work(std::string debug_str = "") : debug_str_(debug_str) { }
+
     virtual ~Work();
 
     // Checks if request has completed. Non-blocking operation.
@@ -94,6 +96,7 @@ class ProcessGroup {
     std::condition_variable cv_;
     bool completed_ = false;
     std::exception_ptr exception_;
+    std::string debug_str_;
   };
 
   explicit ProcessGroup(int rank, int size);
@@ -147,6 +150,22 @@ class ProcessGroup {
       std::vector<at::Tensor>& outputTensors,
       std::vector<std::vector<at::Tensor>>& inputTensors,
       const ReduceScatterOptions& opts = ReduceScatterOptions()) = 0;
+
+  virtual std::shared_ptr<ProcessGroup::Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts = AllToAllOptions()) {
+    throw std::runtime_error("ProcessGroup does not support alltoall");
+  }
+
+  virtual std::shared_ptr<ProcessGroup::Work> alltoall(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
+      const AllToAllOptions& opts = AllToAllOptions()) {
+    throw std::runtime_error("ProcessGroup does not support alltoall");
+  }
 
   virtual std::shared_ptr<ProcessGroup::Work> send(
       std::vector<at::Tensor>& tensors,

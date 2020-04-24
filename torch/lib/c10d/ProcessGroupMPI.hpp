@@ -73,6 +73,8 @@ struct WorkEntry {
 class ProcessGroupMPI : public ProcessGroup {
  public:
   class WorkMPI : public ProcessGroup::Work {
+   public:
+    WorkMPI(std::string debug_str_ = "") : ProcessGroup::Work(debug_str_) {}
    protected:
     friend class ProcessGroupMPI;
   };
@@ -150,6 +152,18 @@ class ProcessGroupMPI : public ProcessGroup {
       std::vector<std::vector<at::Tensor>>& inputTensors,
       const ReduceScatterOptions& opts = ReduceScatterOptions()) override;
 
+  std::shared_ptr<ProcessGroup::Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts = AllToAllOptions()) override;
+
+  std::shared_ptr<ProcessGroup::Work> alltoall(
+      std::vector<at::Tensor>& outputTensors,
+      std::vector<at::Tensor>& inputTensors,
+      const AllToAllOptions& opts = AllToAllOptions()) override;
+
   std::shared_ptr<ProcessGroup::Work> send(
       std::vector<at::Tensor>& tensors,
       int dstRank,
@@ -179,7 +193,7 @@ class ProcessGroupMPI : public ProcessGroup {
   // Helper function that is called by the destructor
   void destroy();
 
-  std::shared_ptr<ProcessGroup::Work> enqueue(std::unique_ptr<WorkEntry> entry);
+  std::shared_ptr<ProcessGroup::Work> enqueue(std::unique_ptr<WorkEntry> entry, std::string debug_str = "");
 
   bool stop_;
 

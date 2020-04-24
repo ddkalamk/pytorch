@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 import copy
 import itertools
+import os
 
 import torch
 
@@ -16,6 +17,7 @@ from .scatter_gather import scatter_kwargs, gather
 from .parallel_apply import parallel_apply
 from torch.cuda._utils import _get_device_index
 
+_enable_bucketing_default = int(os.environ.get('PYTORCH_DISABLE_BUCKETING', '0')) == 0
 
 def _find_tensors(obj):
     r"""
@@ -230,7 +232,8 @@ class DistributedDataParallel(Module):
                  output_device=None, dim=0, broadcast_buffers=True,
                  process_group=None, bucket_cap_mb=25,
                  find_unused_parameters=False,
-                 check_reduction=False):
+                 check_reduction=False,
+                 enable_bucketing=None):
 
         super(DistributedDataParallel, self).__init__()
 
@@ -294,6 +297,10 @@ class DistributedDataParallel(Module):
 
         # reduction bucket size
         self.bucket_bytes_cap = int(bucket_cap_mb * MB)
+        if enable_bucketing is not None:
+            self.enable_bucketing = enable_bucketing
+        else:
+            self.enable_bucketing = _enable_bucketing_default
 
         # Sync params and buffers
         module_states = list(self.module.state_dict().values())
@@ -367,10 +374,20 @@ class DistributedDataParallel(Module):
         # that are defined first, such that their gradients don't spill into
         # a much larger bucket, adding unnecessary latency after gradient
         # computation finishes. Experiments showed 1MB is a reasonable value.
-        bucket_indices = dist._compute_bucket_assignment_by_size(
-            parameters[0],
-            [1024 * 1024, self.bucket_bytes_cap],
-            expect_sparse_gradient[0])
+
+        print("enable_bucketing ", self.enable_bucketing, "bucket_bytes_cap ", self.bucket_bytes_cap)
+
+        if self.enable_bucketing:
+            bucket_indices = dist._compute_bucket_assignment_by_size(
+                parameters[0],
+                [1024 * 1024, self.bucket_bytes_cap],
+                #[self.bucket_bytes_cap],
+                expect_sparse_gradient[0])
+        else:
+            bucket_indices = dist._compute_bucket_assignment_by_size(
+                parameters[0],
+                [0],
+                expect_sparse_gradient[0])
 
         # Note: reverse list of buckets because we want to approximate the
         # order in which their gradients are produced, and assume they
@@ -379,6 +396,7 @@ class DistributedDataParallel(Module):
             parameters,
             list(reversed(bucket_indices)),
             self.process_group,
+            self.enable_bucketing,
             expect_sparse_gradient)
 
         # passing a handle to torch.nn.SyncBatchNorm layer

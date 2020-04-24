@@ -1,5 +1,6 @@
 #include <torch/csrc/distributed/c10d/reducer.h>
 
+#include <atomic>
 #include <functional>
 
 #include <c10/util/Exception.h>
@@ -9,10 +10,14 @@
 #include <torch/csrc/autograd/profiler.h>
 #include <torch/csrc/utils/hash.h>
 #include <torch/csrc/utils/memory.h>
+#include <torch/csrc/autograd/record_function.h>
+#include <stdlib.h>
 
 namespace c10d {
 namespace {
 
+bool sync_allreduce = (getenv("PYTORCH_SYNC_ALLREDUCE") != 0);
+std::atomic_int reducer_counter { 0 };
 // Turns lambda without input/output into a torch::autograd::FunctionPostHook.
 class LambdaPostHook : public torch::autograd::FunctionPostHook {
   using variable_list = std::vector<torch::autograd::Variable>;
@@ -42,15 +47,18 @@ Reducer::Reducer(
     std::vector<std::vector<torch::autograd::Variable>> replicas,
     std::vector<std::vector<size_t>> bucket_indices,
     std::shared_ptr<c10d::ProcessGroup> process_group,
+    bool enable_bucketing,
     std::vector<std::vector<bool>> expect_sparse_gradients)
     : replicas_(std::move(replicas)),
       process_group_(std::move(process_group)),
+      enable_bucketing_(enable_bucketing),
       expect_sparse_gradients_(std::move(expect_sparse_gradients)),
       expect_autograd_hooks_(false),
       require_finalize_(false),
       next_bucket_(0),
       has_marked_unused_parameters_(false),
-      backward_stats_base_(0) {
+      backward_stats_base_(0),
+      reducer_prefix(std::string("reducer_") + std::to_string(reducer_counter.fetch_add(1, std::memory_order_release))) {
   AT_ASSERTM(replicas_.size() >= 1, "Expected at least one model replica.");
   AT_ASSERTM(replicas_[0].size() >= 1, "Expected at least one parameter.");
 
@@ -181,6 +189,17 @@ void Reducer::mark_variable_ready_dense(VariableIndex index) {
   auto& bucket = buckets_[bucket_index.bucket_index];
   auto& replica = bucket.replicas[replica_index];
   auto& variable = replica.variables[bucket_index.intra_bucket_index];
+
+  auto& grad = variable.grad();
+
+  if (!enable_bucketing_)
+  {
+      AT_ASSERT(grad.defined());
+      AT_ASSERT(replica.variables.size() == 1);
+      replica.contents = grad;
+      return;
+  }
+
   const auto offset = replica.offsets[bucket_index.intra_bucket_index];
   const auto length = replica.lengths[bucket_index.intra_bucket_index];
 
@@ -189,7 +208,7 @@ void Reducer::mark_variable_ready_dense(VariableIndex index) {
   // as part of the current backwards pass, and zero the part
   // of the bucket it would otherwise hold.
   auto bucket_view = replica.contents.narrow(0, offset, length);
-  auto& grad = variable.grad();
+
   if (grad.defined()) {
     // Ensure that the gradient type matches the bucket type.
     AT_ASSERTM(
@@ -236,6 +255,7 @@ void Reducer::mark_variable_ready_sparse(VariableIndex index) {
 // model parameter has been accumulated into its gradient tensor.
 // This function is only to be called from the autograd thread.
 void Reducer::autograd_hook(VariableIndex index) {
+  RECORD_FUNCTION("Reducer::autograd_hook", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   std::lock_guard<std::mutex> lock(this->mutex_);
 
   // Ignore if we don't expect to be called.
@@ -365,7 +385,11 @@ void Reducer::mark_bucket_ready(size_t bucket_index) {
       //
       tensors.push_back(replica.contents);
     }
-    bucket.work = process_group_->allreduce(tensors);
+
+    c10d::AllreduceOptions opts;
+    opts.name = reducer_prefix + std::to_string(next_bucket_);
+    bucket.work = process_group_->allreduce(tensors, opts);
+    if(sync_allreduce) bucket.work->wait();
   }
 }
 
@@ -416,7 +440,7 @@ void Reducer::initialize_buckets(
          replica_index++) {
       BucketReplica replica;
 
-      if (bucket.expect_sparse_gradient) {
+      if (bucket.expect_sparse_gradient || !enable_bucketing_) {
         const auto variable_index = bucket_indices[bucket_index].front();
         const auto& variable = replicas_[replica_index][variable_index];
         AT_ASSERT(bucket_indices[bucket_index].size() == 1);
@@ -486,6 +510,7 @@ void Reducer::initialize_buckets(
 // want to start performing reductions on `torch.autograd.backward()`.
 void Reducer::prepare_for_backward(
     const std::vector<torch::autograd::Variable>& outputs) {
+  RECORD_FUNCTION("Reducer::prepare_for_backward", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   std::lock_guard<std::mutex> lock(mutex_);
   std::unordered_set<torch::autograd::Node*> seen;
   std::vector<torch::autograd::Node*> queue;
@@ -573,6 +598,13 @@ void Reducer::prepare_for_backward(
 // A bucket with one or more dense tensors needs to be unflattened.
 void Reducer::finalize_bucket_dense(Bucket& bucket) {
   for (auto& replica : bucket.replicas) {
+
+    if (!enable_bucketing_)
+    {
+        AT_ASSERT(replica.variables.size() == 1);
+        continue;
+    }
+
     for (size_t intra_bucket_index = 0;
          intra_bucket_index < replica.variables.size();
          intra_bucket_index++) {
@@ -604,6 +636,7 @@ void Reducer::finalize_bucket_sparse(Bucket& bucket) {
 }
 
 void Reducer::finalize_backward() {
+  RECORD_FUNCTION("Reducer::finalize_backward", std::vector<c10::IValue>(), torch::autograd::Node::peek_at_next_sequence_nr());
   // No longer expect autograd hooks to fire after this function returns.
   AT_ASSERT(expect_autograd_hooks_);
   expect_autograd_hooks_ = false;

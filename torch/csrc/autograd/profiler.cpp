@@ -119,6 +119,16 @@ void popRange() {
   }
 }
 
+static bool suspend_profiling = false;
+
+void suspendProfiler() {
+  suspend_profiling = true;
+}
+
+void resumeProfiler() {
+  suspend_profiling = false;
+}
+
 void enableProfiler(ProfilerConfig config) {
   ProfilerState new_state = config.state;
   AT_ASSERT(new_state != ProfilerState::Disabled);
@@ -130,6 +140,7 @@ void enableProfiler(ProfilerConfig config) {
 
   pushCallback(
       [config](const RecordFunction& fn) {
+        if(suspend_profiling) return;
         auto* msg = (fn.seqNr() >= 0) ? ", seq = " : "";
         if (config.report_input_shapes) {
           std::vector<std::vector<int64_t>> inputSizes;
@@ -151,7 +162,7 @@ void enableProfiler(ProfilerConfig config) {
           pushRangeImpl(fn.name(), msg, fn.seqNr(), {});
         }
       },
-      [](const RecordFunction& /* unused */) { popRange(); },
+      [](const RecordFunction& /* unused */) { if(suspend_profiling) return; popRange(); },
       config.report_input_shapes);
   state = new_state;
 
