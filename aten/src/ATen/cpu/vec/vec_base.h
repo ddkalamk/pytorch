@@ -27,6 +27,8 @@
 #include <c10/util/C++17.h>
 #include <c10/util/BFloat16.h>
 #include <c10/util/BFloat16-math.h>
+#include <c10/util/BFloat8.h>
+#include <c10/util/BFloat8-math.h>
 #include <c10/util/copysign.h>
 #include <c10/util/math_compat.h>
 #include <ATen/native/cpu/zmath.h>
@@ -67,6 +69,7 @@ struct is_floating_point:
     std::integral_constant<bool,
       std::is_floating_point<T>::value ||
       std::is_same<T, at::Half>::value ||
+      std::is_same<T, at::BFloat8>::value ||
       std::is_same<T, at::BFloat16>::value> {
 };
 

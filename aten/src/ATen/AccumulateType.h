@@ -2,6 +2,7 @@
 #include <ATen/Config.h>
 #include <c10/util/Half.h>
 #include <c10/util/BFloat16.h>
+#include <c10/util/BFloat8.h>
 #include <c10/core/ScalarType.h>
 
 // Defines the accumulation type for a scalar type.
@@ -56,6 +57,7 @@ struct AccumulateType { };
 template <> struct AccumulateType<half, true> { using type = float; };
 #endif
 template <> struct AccumulateType<BFloat16, true> {using type = float; };
+template <> struct AccumulateType<BFloat8, true> {using type = float; };
 template <> struct AccumulateType<Half, true> { using type = float; };
 template <> struct AccumulateType<float, true> { using type = float; };
 template <> struct AccumulateType<double, true> { using type = double; };
@@ -68,6 +70,7 @@ template <> struct AccumulateType<int64_t, true> { using type = int64_t; };
 template <> struct AccumulateType<bool, true> {using type = bool; };
 template <> struct AccumulateType<Half, false> { using type = float; };
 template <> struct AccumulateType<BFloat16, false> { using type = float; };
+template <> struct AccumulateType<BFloat8, false> { using type = float; };
 template <> struct AccumulateType<c10::complex<float>, false> { using type = c10::complex<double>; };
 template <> struct AccumulateType<c10::complex<double>, false> { using type = c10::complex<double>; };
 template <> struct AccumulateType<c10::complex<float>, true> { using type = c10::complex<float>; };

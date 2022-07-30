@@ -2,6 +2,7 @@
 
 #include <c10/macros/Macros.h>
 #include <c10/util/BFloat16.h>
+#include <c10/util/BFloat8.h>
 #include <c10/util/Half.h>
 
 C10_CLANG_DIAGNOSTIC_PUSH()
@@ -23,6 +24,11 @@ C10_HOST_DEVICE inline constexpr BFloat16 pi<BFloat16>() {
   // https://en.wikipedia.org/wiki/Bfloat16_floating-point_format#Special_values
   // pi is encoded as 4049
   return BFloat16(0x4049, BFloat16::from_bits());
+}
+template <>
+C10_HOST_DEVICE inline constexpr BFloat8 pi<BFloat8>() {
+  // for BFloat8 we just pick upper 8 bits of Half value
+  return BFloat8(0x42, BFloat8::from_bits());
 }
 template <>
 C10_HOST_DEVICE inline constexpr Half pi<Half>() {

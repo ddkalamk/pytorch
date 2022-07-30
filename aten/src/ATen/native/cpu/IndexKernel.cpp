@@ -490,7 +490,7 @@ void cpu_masked_select_serial_kernel(TensorIterator& iter, const func_t& f) {
 }
 
 void masked_select_serial_kernel(TensorIterator& iter, int64_t result_stride) {
-  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND3(ScalarType::Bool, ScalarType::BFloat16, ScalarType::Half,
+  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(ScalarType::Bool, ScalarType::BFloat16, ScalarType::Half, ScalarType::BFloat8,
     iter.dtype(), "masked_select", [&] {
       auto mask_dtype = iter.input_dtype(1);
       if (mask_dtype == ScalarType::Bool) {
@@ -529,7 +529,7 @@ void cpu_masked_select_kernel(TensorIterator& iter, const func_t& f) {
 }
 
 void masked_select_kernel(TensorIterator& iter, int64_t result_stride) {
-  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND3(ScalarType::Bool, ScalarType::BFloat16, ScalarType::Half,
+  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(ScalarType::Bool, ScalarType::BFloat16, ScalarType::Half, ScalarType::BFloat8,
     iter.dtype(), "masked_select", [&] {
       auto mask_dtype = iter.input_dtype(1);
       if (mask_dtype == ScalarType::Bool) {

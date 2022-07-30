@@ -53,6 +53,7 @@ DLDataType getDLDataType(const Tensor& t) {
     case ScalarType::BFloat16:
       dtype.code = DLDataTypeCode::kDLBfloat;
       break;
+    case ScalarType::BFloat8:
     case ScalarType::QInt8:
     case ScalarType::QUInt8:
     case ScalarType::QInt32:

@@ -20,8 +20,8 @@ Scalar item(const Tensor& self) {
 
 Scalar _local_scalar_dense_cpu(const Tensor& self) {
   Scalar r;
-  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND4(
-    kComplexHalf, kHalf, kBool, kBFloat16, self.scalar_type(), "_local_scalar_dense_cpu", [&] {
+  AT_DISPATCH_ALL_TYPES_AND_COMPLEX_AND5(
+    kComplexHalf, kHalf, kBool, kBFloat16, kBFloat8, self.scalar_type(), "_local_scalar_dense_cpu", [&] {
         scalar_t value = *self.data_ptr<scalar_t>();
         r = Scalar(value);
       });
