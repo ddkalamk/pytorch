@@ -1692,7 +1692,8 @@ def _new_process_group_helper(
     # we check if the current process is a member of the new group.
     if not is_default_group:
         global_rank = _get_default_group().rank()
-        if global_rank not in global_ranks_in_group:
+        # MPI requires all ranks to participate in new group creation
+        if backend != "mpi" and global_rank not in global_ranks_in_group:
             # If we are using `ncclCommSplit` (or similar split from
             # other APIs) to create the communicator, we will need to
             # call `ncclCommSplit` on *all* ranks in this new group's
@@ -1706,9 +1707,10 @@ def _new_process_group_helper(
     prefix_store = PrefixStore(f"{group_name}/", store)
     base_pg_options = ProcessGroup.Options(backend=str(backend))
     base_pg_options._timeout = timeout
-    pg: ProcessGroup = ProcessGroup(
-        prefix_store, group_rank, group_size, base_pg_options
-    )
+    if group_rank is not None:
+        pg: ProcessGroup = ProcessGroup(
+            prefix_store, group_rank, group_size, base_pg_options
+        )
     if device_id:
         pg.bound_device_id = device_id
     backend_config = BackendConfig(backend)
